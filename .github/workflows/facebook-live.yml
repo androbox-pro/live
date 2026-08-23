@@ -19,10 +19,14 @@ jobs:
       env:
         FB_STREAM_KEY: ${{ secrets.FB_STREAM_KEY }}
       run: |
-        ffmpeg -re -i video.mp4 \
-          -c:v libx264 -preset veryfast -maxrate 2500k -bufsize 5000k \
-          -pix_fmt yuv420p -g 60 \
-          -c:a aac -b:a 128k -ac 2 -ar 44100 \
-          -f flv \
-          -rtmp_buffer 1000 -rtmp_live live \
-          "rtmps://live-api-s.facebook.com:443/rtmp/$FB_STREAM_KEY"
+        while true; do
+          ffmpeg -re -i video.mp4 \
+            -c:v libx264 -preset veryfast -maxrate 2500k -bufsize 5000k \
+            -pix_fmt yuv420p -g 60 \
+            -c:a aac -b:a 128k -ac 2 -ar 44100 \
+            -f flv \
+            -rtmp_buffer 1000 -rtmp_live live \
+            "rtmps://live-api-s.facebook.com:443/rtmp/$FB_STREAM_KEY"
+          echo "Stream disconnected. Reconnecting in 5 seconds..."
+          sleep 5
+        done
