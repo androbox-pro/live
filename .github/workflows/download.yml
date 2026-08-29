@@ -1,14 +1,14 @@
-name: TikTok Video Downloader
+name: TikTok Video Downloader (Max Quality)
 
 on:
   workflow_dispatch:
     inputs:
       video_url:
-        description: 'TikTok ভিডিওর লিংক দিন (www.tiktok.com/... অথবা vm.tiktok.com/...)'
+        description: 'TikTok ভিডিওর লিংক দিন'
         required: true
         type: string
       quality:
-        description: 'কোয়ালিটি (best / 1080 / 720)'
+        description: '1080 / 720 / best (best = সর্বোচ্চ যা আছে)'
         default: 'best'
         type: string
 
@@ -25,16 +25,25 @@ jobs:
         sudo apt update
         sudo apt install -y ffmpeg
 
-    - name: Install yt-dlp with impersonation support
+    - name: Install yt-dlp with impersonation
       run: |
         pip install --upgrade pip
         pip install yt-dlp curl_cffi
 
-    - name: Download TikTok Video
+    - name: Download TikTok Video (Best Available)
       run: |
         mkdir -p downloads
-        yt-dlp -f "bestvideo[height<=${{ inputs.quality == 'best' && '9999' || inputs.quality }}]+bestaudio/best" \
+        
+        # কোয়ালিটি অনুযায়ী ফরম্যাট সেট করা
+        if [ "${{ inputs.quality }}" = "best" ]; then
+          FORMAT="bestvideo+bestaudio"
+        else
+          FORMAT="bestvideo[height<=${{ inputs.quality }}]+bestaudio"
+        fi
+
+        yt-dlp -f "$FORMAT" \
                --merge-output-format mp4 \
+               --format-sort "res,fps,codec:av1:h264" \
                --impersonate chrome \
                --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
                --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
@@ -45,5 +54,5 @@ jobs:
     - name: Upload Video as Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: tiktok-video
+        name: tiktok-video-max-quality
         path: downloads/
