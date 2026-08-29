@@ -1,4 +1,4 @@
-name: TikTok HD Downloader (Like ssstik.io)
+name: TikTok HD Downloader (Exact File Size Match)
 
 on:
   workflow_dispatch:
@@ -19,22 +19,56 @@ jobs:
     - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y ffmpeg
+        sudo apt install -y ffmpeg python3 python3-pip
         pip install --upgrade pip
         pip install yt-dlp curl_cffi
 
-    - name: Download TikTok Video (HD Priority)
+    - name: Get all formats with file sizes
+      id: get_formats
       run: |
+        yt-dlp --dump-json --impersonate chrome \
+               --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
+               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+               "${{ inputs.video_url }}" > video_info.json
+
+    - name: Select the largest file format
+      id: select_format
+      run: |
+        python3 << EOF
+        import json
+        import sys
+
+        with open('video_info.json', 'r') as f:
+            data = json.load(f)
+
+        formats = data.get('formats', [])
+        if not formats:
+            print("No formats found")
+            sys.exit(1)
+
+        # সবচেয়ে বড় ফাইল সাইজের ফরম্যাটটি বেছে নেওয়া
+        best_format = max(formats, key=lambda f: f.get('filesize', 0) or f.get('filesize_approx', 0))
+
+        format_id = best_format['format_id']
+        filesize = best_format.get('filesize', best_format.get('filesize_approx', 0))
+        resolution = f"{best_format.get('width', 'N/A')}x{best_format.get('height', 'N/A')}"
+
+        print(f"✅ Best format found: {format_id} (Size: {filesize} bytes, Resolution: {resolution})")
+
+        with open('selected_format.txt', 'w') as out:
+            out.write(format_id)
+        EOF
+
+    - name: Download the selected format
+      run: |
+        FORMAT_ID=$(cat selected_format.txt)
         mkdir -p downloads
         
-        # --format-sort "bitrate,res" → মানে: সর্বোচ্চ বিটরেটকে প্রাধান্য দাও, তারপর রেজোলিউশন
-        # -f "bestvideo+bestaudio/best" → ভিডিও+অডিও মার্জ করার চেষ্টা কর, না হলে শুধু best ফাইল নে
-        yt-dlp -f "bestvideo+bestaudio/best" \
-               --format-sort "bitrate,res" \
+        yt-dlp -f "$FORMAT_ID" \
                --merge-output-format mp4 \
                --impersonate chrome \
                --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
-               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
                --no-check-certificate \
                --no-playlist \
                -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
