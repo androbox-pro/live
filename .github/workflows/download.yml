@@ -1,10 +1,10 @@
 name: TikTok Video Downloader
 
 on:
-  workflow_dispatch:  # ম্যানুয়ালি রান করার জন্য
+  workflow_dispatch:
     inputs:
       video_url:
-        description: 'https://www.tiktok.com/@crazymaruf999/video/7677570804435062037?_r=1&_t=ZS-99IHhtuqqfA'
+        description: 'TikTok ভিডিওর লিংক দিন (www.tiktok.com/... অথবা vm.tiktok.com/...)'
         required: true
         type: string
       quality:
@@ -15,22 +15,30 @@ on:
 jobs:
   download:
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install yt-dlp and ffmpeg
+    - name: Install system dependencies
       run: |
         sudo apt update
         sudo apt install -y ffmpeg
-        pip install yt-dlp
+
+    - name: Install yt-dlp with impersonation support
+      run: |
+        pip install --upgrade pip
+        pip install yt-dlp curl_cffi
 
     - name: Download TikTok Video
       run: |
         mkdir -p downloads
         yt-dlp -f "bestvideo[height<=${{ inputs.quality == 'best' && '9999' || inputs.quality }}]+bestaudio/best" \
                --merge-output-format mp4 \
+               --impersonate chrome \
+               --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
+               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
+               --no-check-certificate \
                -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
                "${{ inputs.video_url }}"
 
