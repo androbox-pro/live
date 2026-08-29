@@ -1,4 +1,4 @@
-name: TikTok Video Downloader (Max Quality)
+name: TikTok HD Downloader (Like ssstik.io)
 
 on:
   workflow_dispatch:
@@ -6,10 +6,6 @@ on:
       video_url:
         description: 'TikTok ভিডিওর লিংক দিন'
         required: true
-        type: string
-      quality:
-        description: '1080 / 720 / best (best = সর্বোচ্চ যা আছে)'
-        default: 'best'
         type: string
 
 jobs:
@@ -20,39 +16,32 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install system dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
         sudo apt install -y ffmpeg
-
-    - name: Install yt-dlp with impersonation
-      run: |
         pip install --upgrade pip
         pip install yt-dlp curl_cffi
 
-    - name: Download TikTok Video (Best Available)
+    - name: Download TikTok Video (HD Priority)
       run: |
         mkdir -p downloads
         
-        # কোয়ালিটি অনুযায়ী ফরম্যাট সেট করা
-        if [ "${{ inputs.quality }}" = "best" ]; then
-          FORMAT="bestvideo+bestaudio"
-        else
-          FORMAT="bestvideo[height<=${{ inputs.quality }}]+bestaudio"
-        fi
-
-        yt-dlp -f "$FORMAT" \
+        # --format-sort "bitrate,res" → মানে: সর্বোচ্চ বিটরেটকে প্রাধান্য দাও, তারপর রেজোলিউশন
+        # -f "bestvideo+bestaudio/best" → ভিডিও+অডিও মার্জ করার চেষ্টা কর, না হলে শুধু best ফাইল নে
+        yt-dlp -f "bestvideo+bestaudio/best" \
+               --format-sort "bitrate,res" \
                --merge-output-format mp4 \
-               --format-sort "res,fps,codec:av1:h264" \
                --impersonate chrome \
                --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
                --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" \
                --no-check-certificate \
+               --no-playlist \
                -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
                "${{ inputs.video_url }}"
 
-    - name: Upload Video as Artifact
+    - name: Upload HD Video as Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: tiktok-video-max-quality
+        name: tiktok-hd-video
         path: downloads/
