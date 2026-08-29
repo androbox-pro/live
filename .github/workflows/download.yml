@@ -43,20 +43,29 @@ jobs:
 
         formats = data.get('formats', [])
         if not formats:
-            print("No formats found")
+            print("❌ No formats found")
             sys.exit(1)
 
-        # সবচেয়ে বড় ফাইল সাইজের ফরম্যাটটি বেছে নেওয়া
-        best_format = max(formats, key=lambda f: f.get('filesize', 0) or f.get('filesize_approx', 0))
+        # ফরম্যাটগুলো থেকে সাইজ বের করা (যেগুলো None নয়)
+        valid_formats = []
+        for fmt in formats:
+            size = fmt.get('filesize') or fmt.get('filesize_approx')
+            if size is not None:
+                valid_formats.append((fmt, size))
 
-        format_id = best_format['format_id']
-        filesize = best_format.get('filesize', best_format.get('filesize_approx', 0))
-        resolution = f"{best_format.get('width', 'N/A')}x{best_format.get('height', 'N/A')}"
-
-        print(f"✅ Best format found: {format_id} (Size: {filesize} bytes, Resolution: {resolution})")
-
-        with open('selected_format.txt', 'w') as out:
-            out.write(format_id)
+        if valid_formats:
+            # সবচেয়ে বড় সাইজের ফরম্যাট বেছে নেওয়া
+            best_fmt, best_size = max(valid_formats, key=lambda x: x[1])
+            format_id = best_fmt['format_id']
+            resolution = f"{best_fmt.get('width', 'N/A')}x{best_fmt.get('height', 'N/A')}"
+            print(f"✅ Best format: {format_id} (Size: {best_size} bytes, Resolution: {resolution})")
+            with open('selected_format.txt', 'w') as out:
+                out.write(format_id)
+        else:
+            # কোনো সাইজ পাওয়া যায়নি, তাহলে 'best' ব্যবহার করব
+            print("⚠️ No format with size info found. Falling back to 'best'.")
+            with open('selected_format.txt', 'w') as out:
+                out.write('best')
         EOF
 
     - name: Download the selected format
