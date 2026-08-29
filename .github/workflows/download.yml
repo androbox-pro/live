@@ -1,0 +1,41 @@
+name: TikTok Video Downloader
+
+on:
+  workflow_dispatch:  # ম্যানুয়ালি রান করার জন্য
+    inputs:
+      video_url:
+        description: 'https://www.tiktok.com/@crazymaruf999/video/7677570804435062037?_r=1&_t=ZS-99IHhtuqqfA'
+        required: true
+        type: string
+      quality:
+        description: 'কোয়ালিটি (best / 1080 / 720)'
+        default: 'best'
+        type: string
+
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install yt-dlp and ffmpeg
+      run: |
+        sudo apt update
+        sudo apt install -y ffmpeg
+        pip install yt-dlp
+
+    - name: Download TikTok Video
+      run: |
+        mkdir -p downloads
+        yt-dlp -f "bestvideo[height<=${{ inputs.quality == 'best' && '9999' || inputs.quality }}]+bestaudio/best" \
+               --merge-output-format mp4 \
+               -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
+               "${{ inputs.video_url }}"
+
+    - name: Upload Video as Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: tiktok-video
+        path: downloads/
