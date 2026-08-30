@@ -22,15 +22,16 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests beautifulsoup4
 
-      - name: Create TikTok Native API Script
+      - name: Create Web-Page HTML Extractor Script
         run: |
           cat << 'EOF' > downloader.py
           import sys
           import re
           import json
           import requests
+          from bs4 import BeautifulSoup
 
           raw_input = sys.argv[1]
           urls = re.findall(r'https?://[^\s]+', raw_input)
@@ -45,71 +46,71 @@ jobs:
           headers = {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
               'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.5',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Sec-Fetch-Mode': 'navigate',
           }
 
-          # Resolve redirect link (if short URL like vm.tiktok.com)
+          # Resolve redirect link
           res = session.get(input_url, headers=headers, allow_redirects=True)
           final_url = res.url
           print(f'Expanded URL: {final_url}')
 
-          video_id_search = re.search(r'/video/(\d+)', final_url)
-          if not video_id_search:
-              print('Error: Could not extract Video ID from URL!')
-              sys.exit(1)
-
-          video_id = video_id_search.group(1)
-          print(f'Video ID: {video_id}')
-
-          # Direct Query to TikTok Web API Engine
-          api_endpoint = f'https://api22-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}'
+          soup = BeautifulSoup(res.text, 'html.parser')
           
-          api_headers = {
-              'User-Agent': 'com.ss.android.ugc.trill/2613 (Linux; U; Android 10; en_US; Pixel 4; Build/QQ3A.200805.001; Cronet/TTNetVersion:b4d74d15 2022-03-22 QuicVersion:4794e222 2022-03-15)'
-          }
-
-          response = session.get(api_endpoint, headers=api_headers)
-          data = response.json()
-
-          aweme_list = data.get('aweme_list', [])
-          if not aweme_list:
-              print('Error: Video data not found from TikTok API!')
-              sys.exit(1)
-
-          video_data = aweme_list[0].get('video', {})
+          # Method 1: Extract JSON Data Embedded in Page
+          script_tag = soup.find('script', id='__UNIVERSAL_DATA_FOR_REHYDRATION__') or soup.find('script', id='SIGI_STATE')
           
-          # Prioritize HD Play Address (Highest Bitrate Original Stream)
           download_url = None
-          
-          # Try extracting 1080p / Bitrate Streams
-          bit_rate_list = video_data.get('bit_rate', [])
-          if bit_rate_list:
-              # Sort by highest resolution / quality_type
-              sorted_streams = sorted(bit_rate_list, key=lambda x: x.get('bit_rate', 0), reverse=True)
-              download_url = sorted_streams[0].get('play_addr', {}).get('url_list', [None])[0]
+
+          if script_tag and script_tag.string:
+              try:
+                  page_data = json.loads(script_tag.string)
+                  default_scope = page_data.get('__DEFAULT_SCOPE__', {})
+                  item_detail = default_scope.get('webapp.video-detail', {}).get('itemInfo', {}).get('itemStruct', {})
+                  video_meta = item_detail.get('video', {})
+                  
+                  # Extract Bitrate Streams
+                  bitrate_info = video_meta.get('bitrateInfo', [])
+                  if bitrate_info:
+                      # Sort by highest Bitrate / Resolution
+                      sorted_bitrate = sorted(bitrate_info, key=lambda x: x.get('Bitrate', 0), reverse=True)
+                      download_url = sorted_bitrate[0].get('PlayAddr', {}).get('UrlList', [None])[0]
+                  
+                  if not download_url:
+                      download_url = video_meta.get('playAddr', '')
+              except Exception as e:
+                  print(f'JSON parsing error: {e}')
+
+          # Method 2: Fallback to Meta Tag Direct Video Url
+          if not download_url:
+              meta_video = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
+              if meta_video and meta_video.get('content'):
+                  download_url = meta_video['content']
 
           if not download_url:
-              download_url = video_data.get('play_addr', {}).get('url_list', [None])[0]
-
-          if not download_url:
-              print('Error: Could not obtain HD stream URL.')
+              print('Error: Could not extract original stream URL from page metadata.')
               sys.exit(1)
 
-          print('Highest Bitrate Stream Found! Downloading Original 1080p Video...')
-          video_file = session.get(download_url, headers=api_headers, stream=True)
+          print(f'Stream Found! Downloading Original High-Bitrate Video...')
+          
+          # Headers with Referer required for TikTok CDN
+          stream_headers = headers.copy()
+          stream_headers['Referer'] = 'https://www.tiktok.com/'
+
+          video_file = session.get(download_url, headers=stream_headers, stream=True)
 
           with open('video.mp4', 'wb') as f:
               for chunk in video_file.iter_content(chunk_size=1024*1024):
                   if chunk:
                       f.write(chunk)
 
-          print('Success: Ultra HD Video Downloaded!')
+          print('Success: Original HD Video downloaded successfully!')
           EOF
 
-      - name: Run Downloader Script
+      - name: Run Script
         run: python downloader.py "${{ github.event.inputs.tiktok_url }}"
 
-      - name: Upload Ultra HD Video
+      - name: Upload HD Video
         uses: actions/upload-artifact@v4
         with:
           name: tiktok-hd-video
