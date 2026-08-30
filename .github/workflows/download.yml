@@ -19,48 +19,78 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      - name: Install requests
-        run: pip install requests
+      - name: Install dependencies
+        run: pip install requests beautifulsoup4
 
-      - name: Fetch and Download HD Video via TikWM CDN
+      - name: Extract Direct HD Stream from CDN
         run: |
           python -c "
-          import sys, re, requests
+          import sys, re, requests, json
 
           raw_input = '''${{ github.event.inputs.tiktok_url }}'''
-          # URL ফিল্টার
           urls = re.findall(r'https?://[^\s]+', raw_input)
           if not urls:
-              print('No valid URL found!')
+              print('Error: No valid URL found!')
               sys.exit(1)
           
-          clean_url = urls[0]
-          print(f'Fetching video for: {clean_url}')
+          target_url = urls[0]
+          print(f'Processing URL: {target_url}')
 
-          api_url = 'https://www.tikwm.com/api/'
-          params = {'url': clean_url, 'hd': 1}
-          
+          session = requests.Session()
           headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+              'Accept-Language': 'en-US,en;q=0.9',
           }
 
-          res = requests.get(api_url, params=params, headers=headers).json()
-          
-          if res.get('code') == 0:
-              data = res.get('data', {})
-              # HD লিংক থাকলে HD নেবে, না থাকলে নরমাল ওয়াটারমার্ক ছাড়া অরিজিনাল CDN লিংক নেবে
-              video_url = data.get('hdplay') or data.get('play')
+          # SSSTik API Integration (Direct HD Stream Extractor)
+          try:
+              # Get base token
+              res = session.get('https://ssstik.io/en', headers=headers)
+              token_match = re.search(r's_tt\s*=\s*[\'"]([^\'"]+)[\'"]', res.text)
               
-              print(f'Downloading directly from CDN stream...')
-              video_bytes = requests.get(video_url, headers=headers).content
+              api_url = 'https://ssstik.io/abc?url=dl'
+              payload = {
+                  'id': target_url,
+                  'locale': 'en',
+                  'tt': token_match.group(1) if token_match else ''
+              }
+              
+              api_headers = headers.copy()
+              api_headers['hx-request'] = 'true'
+              api_headers['hx-target'] = 'target'
+              api_headers['hx-current-url'] = 'https://ssstik.io/en'
+
+              post_res = session.post(api_url, data=payload, headers=api_headers)
+              
+              # Extract HD / Direct Play URL
+              download_links = re.findall(r'href="([^"]+)"', post_res.text)
+              direct_url = None
+              
+              for link in download_links:
+                  if 'tikmate' in link or 'ssstik' in link or 'tikcdn' in link or 'dl' in link:
+                      direct_url = link
+                      break
+              
+              if not direct_url and download_links:
+                  direct_url = download_links[0]
+
+              if not direct_url:
+                  raise Exception('Failed to extract direct CDN download link.')
+
+              print(f'Direct Stream Found! Downloading Original Quality...')
+              video_data = session.get(direct_url, headers=headers, stream=True)
               
               with open('video.mp4', 'wb') as f:
-                  f.write(video_bytes)
-              print('Download completed successfully!')
-          else:
-              print(f'API Error: {res.get(\"msg\")}')
+                  for chunk in video_data.iter_content(chunk_size=1024*1024):
+                      if chunk:
+                          f.write(chunk)
+
+              print('Success: HD Video downloaded successfully!')
+
+          except Exception as e:
+              print(f'Error occurred: {str(e)}')
               sys.exit(1)
           "
 
