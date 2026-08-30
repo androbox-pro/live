@@ -1,4 +1,4 @@
-name: TikTok HD Downloader (ssstik.io API)
+name: TikTok HD Downloader (yt-dlp Best)
 
 on:
   workflow_dispatch:
@@ -16,68 +16,29 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install Python dependencies
+    - name: Install dependencies
       run: |
         sudo apt update
-        sudo apt install -y python3 python3-pip ffmpeg
-        pip install requests
+        sudo apt install -y ffmpeg
+        pip install --upgrade pip
+        pip install --upgrade yt-dlp curl_cffi
 
-    - name: Download HD Video via ssstik.io API
-      id: download
+    - name: Download TikTok Video (HD Priority)
       run: |
-        python3 << EOF
-        import requests
-        import re
-        import json
-        import os
-        import time
-
-        def get_ssstik_hd(url):
-            session = requests.Session()
-            session.headers.update({
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                'Accept': 'application/json, text/javascript, */*; q=0.01',
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Origin': 'https://ssstik.io',
-                'Referer': 'https://ssstik.io/',
-            })
-            
-            resp = session.get('https://ssstik.io/')
-            token_match = re.search(r'name="token" value="([^"]+)"', resp.text)
-            token = token_match.group(1) if token_match else ''
-            
-            resp = session.post('https://ssstik.io/action', data={
-                'url': url,
-                'token': token,
-                'lang': 'en',
-            })
-            
-            if resp.status_code == 200 and resp.json().get('success'):
-                return resp.json().get('url')
-            return None
-
-        url = "${{ inputs.video_url }}"
-        print(f"🔍 Processing: {url}")
-        video_url = get_ssstik_hd(url)
+        mkdir -p downloads
         
-        if not video_url:
-            print("❌ Failed to get HD link")
-            exit(1)
-        
-        print("✅ HD link found, downloading...")
-        resp = requests.get(video_url, stream=True)
-        if resp.status_code == 200:
-            os.makedirs('downloads', exist_ok=True)
-            filename = f"downloads/ssstik_{int(time.time())}.mp4"
-            with open(filename, 'wb') as f:
-                for chunk in resp.iter_content(8192):
-                    f.write(chunk)
-            print(f"✅ Downloaded: {filename}")
-        else:
-            print("❌ Download failed")
-            exit(1)
-        EOF
+        # সবচেয়ে ভালো মানের ফরম্যাট বেছে নেওয়া
+        # res > height=1080 বা তার বেশি, bitrate অনুযায়ী সাজানো
+        yt-dlp -f "bestvideo[height>=1080]+bestaudio/bestvideo[height>=720]+bestaudio/best" \
+               --merge-output-format mp4 \
+               --format-sort "res,bitrate" \
+               --impersonate chrome \
+               --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
+               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
+               --no-check-certificate \
+               --no-playlist \
+               -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
+               "${{ inputs.video_url }}"
 
     - name: Upload HD Video as Artifact
       uses: actions/upload-artifact@v4
