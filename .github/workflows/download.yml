@@ -1,4 +1,4 @@
-name: TikTok HD Downloader (Exact File Size Match)
+name: TikTok HD Downloader (ssstik.io API)
 
 on:
   workflow_dispatch:
@@ -16,72 +16,68 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    - name: Install dependencies
+    - name: Install Python dependencies
       run: |
         sudo apt update
-        sudo apt install -y ffmpeg python3 python3-pip
-        pip install --upgrade pip
-        pip install yt-dlp curl_cffi
+        sudo apt install -y python3 python3-pip ffmpeg
+        pip install requests
 
-    - name: Get all formats with file sizes
-      id: get_formats
-      run: |
-        yt-dlp --dump-json --impersonate chrome \
-               --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
-               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-               "${{ inputs.video_url }}" > video_info.json
-
-    - name: Select the largest file format
-      id: select_format
+    - name: Download HD Video via ssstik.io API
+      id: download
       run: |
         python3 << EOF
+        import requests
+        import re
         import json
-        import sys
+        import os
+        import time
 
-        with open('video_info.json', 'r') as f:
-            data = json.load(f)
+        def get_ssstik_hd(url):
+            session = requests.Session()
+            session.headers.update({
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Accept': 'application/json, text/javascript, */*; q=0.01',
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                'Origin': 'https://ssstik.io',
+                'Referer': 'https://ssstik.io/',
+            })
+            
+            resp = session.get('https://ssstik.io/')
+            token_match = re.search(r'name="token" value="([^"]+)"', resp.text)
+            token = token_match.group(1) if token_match else ''
+            
+            resp = session.post('https://ssstik.io/action', data={
+                'url': url,
+                'token': token,
+                'lang': 'en',
+            })
+            
+            if resp.status_code == 200 and resp.json().get('success'):
+                return resp.json().get('url')
+            return None
 
-        formats = data.get('formats', [])
-        if not formats:
-            print("❌ No formats found")
-            sys.exit(1)
-
-        # ফরম্যাটগুলো থেকে সাইজ বের করা (যেগুলো None নয়)
-        valid_formats = []
-        for fmt in formats:
-            size = fmt.get('filesize') or fmt.get('filesize_approx')
-            if size is not None:
-                valid_formats.append((fmt, size))
-
-        if valid_formats:
-            # সবচেয়ে বড় সাইজের ফরম্যাট বেছে নেওয়া
-            best_fmt, best_size = max(valid_formats, key=lambda x: x[1])
-            format_id = best_fmt['format_id']
-            resolution = f"{best_fmt.get('width', 'N/A')}x{best_fmt.get('height', 'N/A')}"
-            print(f"✅ Best format: {format_id} (Size: {best_size} bytes, Resolution: {resolution})")
-            with open('selected_format.txt', 'w') as out:
-                out.write(format_id)
-        else:
-            # কোনো সাইজ পাওয়া যায়নি, তাহলে 'best' ব্যবহার করব
-            print("⚠️ No format with size info found. Falling back to 'best'.")
-            with open('selected_format.txt', 'w') as out:
-                out.write('best')
-        EOF
-
-    - name: Download the selected format
-      run: |
-        FORMAT_ID=$(cat selected_format.txt)
-        mkdir -p downloads
+        url = "${{ inputs.video_url }}"
+        print(f"🔍 Processing: {url}")
+        video_url = get_ssstik_hd(url)
         
-        yt-dlp -f "$FORMAT_ID" \
-               --merge-output-format mp4 \
-               --impersonate chrome \
-               --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
-               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-               --no-check-certificate \
-               --no-playlist \
-               -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
-               "${{ inputs.video_url }}"
+        if not video_url:
+            print("❌ Failed to get HD link")
+            exit(1)
+        
+        print("✅ HD link found, downloading...")
+        resp = requests.get(video_url, stream=True)
+        if resp.status_code == 200:
+            os.makedirs('downloads', exist_ok=True)
+            filename = f"downloads/ssstik_{int(time.time())}.mp4"
+            with open(filename, 'wb') as f:
+                for chunk in resp.iter_content(8192):
+                    f.write(chunk)
+            print(f"✅ Downloaded: {filename}")
+        else:
+            print("❌ Download failed")
+            exit(1)
+        EOF
 
     - name: Upload HD Video as Artifact
       uses: actions/upload-artifact@v4
