@@ -1,10 +1,10 @@
-name: TikTok Native HD Downloader
+name: Download TikTok Video HD
 
 on:
   workflow_dispatch:
     inputs:
-      video_url:
-        description: 'TikTok ভিডিওর লিংক দিন'
+      tiktok_url:
+        description: 'Paste TikTok Video URL'
         required: true
         type: string
 
@@ -13,34 +13,26 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-    - name: Install dependencies
-      run: |
-        sudo apt update
-        sudo apt install -y ffmpeg
-        pip install --upgrade pip
-        pip install --upgrade yt-dlp curl_cffi
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-    - name: Download Native HD Video
-      run: |
-        mkdir -p downloads
-        
-        # -S "size,res" মানে: সবচেয়ে বড় ফাইল এবং ভালো রেজোলিউশন বেছে নাও
-        # --impersonate chrome দিয়ে TikTok বাইপাস
-        yt-dlp -S "size,res" \
-               --merge-output-format mp4 \
-               --impersonate chrome \
-               --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
-               --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
-               --no-check-certificate \
-               --no-playlist \
-               -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
-               "${{ inputs.video_url }}"
+      - name: Install yt-dlp
+        run: |
+          python -m pip install --upgrade pip
+          pip install yt-dlp
 
-    - name: Upload Native HD Video
-      uses: actions/upload-artifact@v4
-      with:
-        name: tiktok-native-hd
-        path: downloads/
+      - name: Download HD Video
+        run: |
+          yt-dlp -f "bestvideo+bestaudio/best" --no-watermark "${{ github.event.inputs.tiktok_url }}" -o "video.mp4"
+
+      - name: Upload Video as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tiktok-hd-video
+          path: video.mp4
+          retention-days: 1
