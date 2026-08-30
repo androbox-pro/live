@@ -1,4 +1,4 @@
-name: Download TikTok HD Video Direct CDN
+name: Download TikTok Original HD Video
 
 on:
   workflow_dispatch:
@@ -22,13 +22,14 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests
 
-      - name: Create Python Extractor Script
+      - name: Create TikTok Native API Script
         run: |
           cat << 'EOF' > downloader.py
           import sys
           import re
+          import json
           import requests
 
           raw_input = sys.argv[1]
@@ -37,66 +38,78 @@ jobs:
               print('Error: No valid URL found!')
               sys.exit(1)
 
-          target_url = urls[0]
-          print(f'Processing URL: {target_url}')
+          input_url = urls[0]
+          print(f'Original URL: {input_url}')
 
           session = requests.Session()
           headers = {
-              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-              'Accept-Language': 'en-US,en;q=0.9',
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.5',
           }
 
-          try:
-              res = session.get('https://ssstik.io/en', headers=headers)
-              token_match = re.search(r's_tt\s*=\s*[\'"]([^\'"]+)[\'"]', res.text)
+          # Resolve redirect link (if short URL like vm.tiktok.com)
+          res = session.get(input_url, headers=headers, allow_redirects=True)
+          final_url = res.url
+          print(f'Expanded URL: {final_url}')
 
-              api_url = 'https://ssstik.io/abc?url=dl'
-              payload = {
-                  'id': target_url,
-                  'locale': 'en',
-                  'tt': token_match.group(1) if token_match else ''
-              }
-
-              api_headers = headers.copy()
-              api_headers['hx-request'] = 'true'
-              api_headers['hx-target'] = 'target'
-              api_headers['hx-current-url'] = 'https://ssstik.io/en'
-
-              post_res = session.post(api_url, data=payload, headers=api_headers)
-
-              download_links = re.findall(r'href="([^"]+)"', post_res.text)
-              direct_url = None
-
-              for link in download_links:
-                  if 'tikmate' in link or 'ssstik' in link or 'tikcdn' in link or 'dl' in link or 'snaptik' in link:
-                      direct_url = link
-                      break
-
-              if not direct_url and download_links:
-                  direct_url = download_links[0]
-
-              if not direct_url:
-                  raise Exception('Failed to extract direct CDN download link.')
-
-              print('Direct Stream Found! Downloading Original Quality...')
-              video_data = session.get(direct_url, headers=headers, stream=True)
-
-              with open('video.mp4', 'wb') as f:
-                  for chunk in video_data.iter_content(chunk_size=1024*1024):
-                      if chunk:
-                          f.write(chunk)
-
-              print('Success: HD Video downloaded successfully!')
-
-          except Exception as e:
-              print(f'Error occurred: {str(e)}')
+          video_id_search = re.search(r'/video/(\d+)', final_url)
+          if not video_id_search:
+              print('Error: Could not extract Video ID from URL!')
               sys.exit(1)
+
+          video_id = video_id_search.group(1)
+          print(f'Video ID: {video_id}')
+
+          # Direct Query to TikTok Web API Engine
+          api_endpoint = f'https://api22-normal-c-useast1a.tiktokv.com/aweme/v1/feed/?aweme_id={video_id}'
+          
+          api_headers = {
+              'User-Agent': 'com.ss.android.ugc.trill/2613 (Linux; U; Android 10; en_US; Pixel 4; Build/QQ3A.200805.001; Cronet/TTNetVersion:b4d74d15 2022-03-22 QuicVersion:4794e222 2022-03-15)'
+          }
+
+          response = session.get(api_endpoint, headers=api_headers)
+          data = response.json()
+
+          aweme_list = data.get('aweme_list', [])
+          if not aweme_list:
+              print('Error: Video data not found from TikTok API!')
+              sys.exit(1)
+
+          video_data = aweme_list[0].get('video', {})
+          
+          # Prioritize HD Play Address (Highest Bitrate Original Stream)
+          download_url = None
+          
+          # Try extracting 1080p / Bitrate Streams
+          bit_rate_list = video_data.get('bit_rate', [])
+          if bit_rate_list:
+              # Sort by highest resolution / quality_type
+              sorted_streams = sorted(bit_rate_list, key=lambda x: x.get('bit_rate', 0), reverse=True)
+              download_url = sorted_streams[0].get('play_addr', {}).get('url_list', [None])[0]
+
+          if not download_url:
+              download_url = video_data.get('play_addr', {}).get('url_list', [None])[0]
+
+          if not download_url:
+              print('Error: Could not obtain HD stream URL.')
+              sys.exit(1)
+
+          print('Highest Bitrate Stream Found! Downloading Original 1080p Video...')
+          video_file = session.get(download_url, headers=api_headers, stream=True)
+
+          with open('video.mp4', 'wb') as f:
+              for chunk in video_file.iter_content(chunk_size=1024*1024):
+                  if chunk:
+                      f.write(chunk)
+
+          print('Success: Ultra HD Video Downloaded!')
           EOF
 
-      - name: Run Script and Download HD Video
+      - name: Run Downloader Script
         run: python downloader.py "${{ github.event.inputs.tiktok_url }}"
 
-      - name: Upload HD Video
+      - name: Upload Ultra HD Video
         uses: actions/upload-artifact@v4
         with:
           name: tiktok-hd-video
