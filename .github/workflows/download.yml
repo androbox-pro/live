@@ -1,4 +1,4 @@
-name: TikTok HD Downloader (yt-dlp Best)
+name: TikTok Native HD Downloader
 
 on:
   workflow_dispatch:
@@ -23,15 +23,14 @@ jobs:
         pip install --upgrade pip
         pip install --upgrade yt-dlp curl_cffi
 
-    - name: Download TikTok Video (HD Priority)
+    - name: Download Native HD Video
       run: |
         mkdir -p downloads
         
-        # সবচেয়ে ভালো মানের ফরম্যাট বেছে নেওয়া
-        # res > height=1080 বা তার বেশি, bitrate অনুযায়ী সাজানো
-        yt-dlp -f "bestvideo[height>=1080]+bestaudio/bestvideo[height>=720]+bestaudio/best" \
+        # -S "size,res" মানে: সবচেয়ে বড় ফাইল এবং ভালো রেজোলিউশন বেছে নাও
+        # --impersonate chrome দিয়ে TikTok বাইপাস
+        yt-dlp -S "size,res" \
                --merge-output-format mp4 \
-               --format-sort "res,bitrate" \
                --impersonate chrome \
                --extractor-args "tiktok:api_hostname=www.tiktok.com,app_info=auto" \
                --user-agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" \
@@ -40,8 +39,8 @@ jobs:
                -o "downloads/%(title).40s_[%(id)s].%(ext)s" \
                "${{ inputs.video_url }}"
 
-    - name: Upload HD Video as Artifact
+    - name: Upload Native HD Video
       uses: actions/upload-artifact@v4
       with:
-        name: tiktok-hd-video
+        name: tiktok-native-hd
         path: downloads/
