@@ -1,4 +1,4 @@
-name: Download TikTok Video HD
+name: Download TikTok Video Ultra HD
 
 on:
   workflow_dispatch:
@@ -26,15 +26,18 @@ jobs:
           python -m pip install --upgrade pip
           pip install --upgrade yt-dlp "curl_cffi"
 
-      - name: Download HD Video
+      - name: Download Ultra HD Video
         run: |
-          # URL থেকে বাড়তি বাংলা/ইংরেজি টেক্সট ছেঁকে নেওয়া
+          # URL ফিল্টার
           CLEAN_URL=$(echo "${{ github.event.inputs.tiktok_url }}" | grep -o 'https://[^ ]*' | head -n 1)
           
-          # Impersonate ও নির্দিষ্ট Extractor ব্যবহার করে ভিডিও ডাউনলোড
+          # সর্বোচ্চ ফরম্যাট সিলেক্ট ও অরিজিনাল স্ট্রিম ডাউনলোড
           yt-dlp \
             --impersonate chrome \
             --extractor-args "tiktok:api_hostname=api22-normal-c-useast1a.tiktokv.com" \
+            -f "bestvideo+bestaudio/best" \
+            --format-sort "res,vcodec:h264,bbr,br" \
+            --merge-output-format mp4 \
             -o "video.mp4" \
             "$CLEAN_URL"
 
