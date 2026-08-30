@@ -1,4 +1,4 @@
-name: Download TikTok Original HD Video
+name: Download TikTok 1080p Full HD
 
 on:
   workflow_dispatch:
@@ -24,12 +24,11 @@ jobs:
       - name: Install dependencies
         run: pip install requests beautifulsoup4
 
-      - name: Create Web-Page HTML Extractor Script
+      - name: Create SSSTik 1080p Extractor Script
         run: |
           cat << 'EOF' > downloader.py
           import sys
           import re
-          import json
           import requests
           from bs4 import BeautifulSoup
 
@@ -39,80 +38,85 @@ jobs:
               print('Error: No valid URL found!')
               sys.exit(1)
 
-          input_url = urls[0]
-          print(f'Original URL: {input_url}')
+          target_url = urls[0]
+          print(f'Processing URL: {target_url}')
 
           session = requests.Session()
           headers = {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
               'Accept-Language': 'en-US,en;q=0.9',
-              'Sec-Fetch-Mode': 'navigate',
           }
 
-          # Resolve redirect link
-          res = session.get(input_url, headers=headers, allow_redirects=True)
-          final_url = res.url
-          print(f'Expanded URL: {final_url}')
+          try:
+              # Get base page and s_tt token
+              res = session.get('https://ssstik.io/en', headers=headers)
+              token_match = re.search(r's_tt\s*=\s*[\'"]([^\'"]+)[\'"]', res.text)
+              token = token_match.group(1) if token_match else ''
 
-          soup = BeautifulSoup(res.text, 'html.parser')
-          
-          # Method 1: Extract JSON Data Embedded in Page
-          script_tag = soup.find('script', id='__UNIVERSAL_DATA_FOR_REHYDRATION__') or soup.find('script', id='SIGI_STATE')
-          
-          download_url = None
+              api_url = 'https://ssstik.io/abc?url=dl'
+              payload = {
+                  'id': target_url,
+                  'locale': 'en',
+                  'tt': token
+              }
 
-          if script_tag and script_tag.string:
-              try:
-                  page_data = json.loads(script_tag.string)
-                  default_scope = page_data.get('__DEFAULT_SCOPE__', {})
-                  item_detail = default_scope.get('webapp.video-detail', {}).get('itemInfo', {}).get('itemStruct', {})
-                  video_meta = item_detail.get('video', {})
-                  
-                  # Extract Bitrate Streams
-                  bitrate_info = video_meta.get('bitrateInfo', [])
-                  if bitrate_info:
-                      # Sort by highest Bitrate / Resolution
-                      sorted_bitrate = sorted(bitrate_info, key=lambda x: x.get('Bitrate', 0), reverse=True)
-                      download_url = sorted_bitrate[0].get('PlayAddr', {}).get('UrlList', [None])[0]
-                  
-                  if not download_url:
-                      download_url = video_meta.get('playAddr', '')
-              except Exception as e:
-                  print(f'JSON parsing error: {e}')
+              api_headers = headers.copy()
+              api_headers['hx-request'] = 'true'
+              api_headers['hx-target'] = 'target'
+              api_headers['hx-current-url'] = 'https://ssstik.io/en'
 
-          # Method 2: Fallback to Meta Tag Direct Video Url
-          if not download_url:
-              meta_video = soup.find('meta', property='og:video') or soup.find('meta', property='og:video:secure_url')
-              if meta_video and meta_video.get('content'):
-                  download_url = meta_video['content']
+              post_res = session.post(api_url, data=payload, headers=api_headers)
+              soup = BeautifulSoup(post_res.text, 'html.parser')
 
-          if not download_url:
-              print('Error: Could not extract original stream URL from page metadata.')
+              # SSSTik returns multiple download links. We filter specifically for the HD stream.
+              hd_link = None
+              all_links = soup.find_all('a', href=True)
+
+              for a in all_links:
+                  href = a['href']
+                  text = a.get_text().lower()
+                  # Check for HD explicitly or tikcdn / dl links
+                  if 'hd' in text or 'without watermark hd' in text:
+                      hd_link = href
+                      break
+
+              # Fallback to pure download link if HD text is inside class or separate button
+              if not hd_link:
+                  for a in all_links:
+                      href = a['href']
+                      if 'tikcdn' in href or 'ssstik' in href or 'snaptik' in href or '/dl' in href:
+                          hd_link = href
+                          break
+
+              if not hd_link and all_links:
+                  hd_link = all_links[0]['href']
+
+              if not hd_link:
+                  raise Exception('Could not extract 1080p HD link from SSSTik API.')
+
+              print(f'Found 1080p HD Stream URL!')
+              print(f'Downloading Full HD Video...')
+
+              video_data = session.get(hd_link, headers=headers, stream=True)
+
+              with open('video.mp4', 'wb') as f:
+                  for chunk in video_data.iter_content(chunk_size=1024*1024):
+                      if chunk:
+                          f.write(chunk)
+
+              print('Success: 1920x1080 Full HD Video downloaded successfully!')
+
+          except Exception as e:
+              print(f'Error occurred: {str(e)}')
               sys.exit(1)
-
-          print(f'Stream Found! Downloading Original High-Bitrate Video...')
-          
-          # Headers with Referer required for TikTok CDN
-          stream_headers = headers.copy()
-          stream_headers['Referer'] = 'https://www.tiktok.com/'
-
-          video_file = session.get(download_url, headers=stream_headers, stream=True)
-
-          with open('video.mp4', 'wb') as f:
-              for chunk in video_file.iter_content(chunk_size=1024*1024):
-                  if chunk:
-                      f.write(chunk)
-
-          print('Success: Original HD Video downloaded successfully!')
           EOF
 
-      - name: Run Script
+      - name: Run Downloader
         run: python downloader.py "${{ github.event.inputs.tiktok_url }}"
 
-      - name: Upload HD Video
+      - name: Upload 1080p HD Video
         uses: actions/upload-artifact@v4
         with:
-          name: tiktok-hd-video
+          name: tiktok-1080p-video
           path: video.mp4
           retention-days: 1
