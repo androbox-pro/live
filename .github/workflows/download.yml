@@ -19,18 +19,24 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.x'
+          python-version: '3.11'
 
-      - name: Install yt-dlp
+      - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install yt-dlp
+          pip install --upgrade yt-dlp "curl_cffi"
 
       - name: Download HD Video
         run: |
-          # URL ছাড়া বাকি অতিরিক্ত টেক্সট বাদ দেওয়ার ফিল্টার
-          CLEAN_URL=$(echo "${{ github.event.inputs.tiktok_url }}" | grep -o 'https://[^ ]*')
-          yt-dlp -f "best" "$CLEAN_URL" -o "video.mp4"
+          # URL থেকে বাড়তি বাংলা/ইংরেজি টেক্সট ছেঁকে নেওয়া
+          CLEAN_URL=$(echo "${{ github.event.inputs.tiktok_url }}" | grep -o 'https://[^ ]*' | head -n 1)
+          
+          # Impersonate ও নির্দিষ্ট Extractor ব্যবহার করে ভিডিও ডাউনলোড
+          yt-dlp \
+            --impersonate chrome \
+            --extractor-args "tiktok:api_hostname=api22-normal-c-useast1a.tiktokv.com" \
+            -o "video.mp4" \
+            "$CLEAN_URL"
 
       - name: Upload Video as Artifact
         uses: actions/upload-artifact@v4
