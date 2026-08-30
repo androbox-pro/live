@@ -22,16 +22,15 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install requests beautifulsoup4
+        run: pip install requests
 
-      - name: Create SSSTik HD Specific Downloader
+      - name: Create TikWM 1080p Ultra HD Specific Downloader
         run: |
           cat << 'EOF' > downloader.py
           import sys
           import re
           import requests
           import traceback
-          from bs4 import BeautifulSoup
 
           raw_input = sys.argv[1] if len(sys.argv) > 1 else ""
           urls = re.findall(r'https?://[^\s]+', raw_input)
@@ -40,91 +39,54 @@ jobs:
               sys.exit(1)
 
           target_url = urls[0]
-          print(f'Processing TikTok URL: {target_url}')
+          print(f'Processing TikTok URL for 1080p HD: {target_url}')
 
-          session = requests.Session()
           headers = {
               'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-              'Accept-Language': 'en-US,en;q=0.9',
+          }
+
+          api_url = 'https://www.tikwm.com/api/'
+          payload = {
+              'url': target_url,
+              'hd': 1  # 1 forces 1920x1080 Ultra HD resolution stream
           }
 
           try:
-              # Step 1: Fetch initial session page and extract token
-              res = session.get('https://ssstik.io/en', headers=headers, timeout=15)
-              token_match = re.search(r's_tt\s*=\s*[\'"]([^\'"]+)[\'"]', res.text)
-              token = token_match.group(1) if token_match else ''
+              response = requests.post(api_url, data=payload, headers=headers, timeout=20)
+              data = response.json()
 
-              # Step 2: Request Download Page Links via HTMX endpoint
-              api_url = 'https://ssstik.io/abc?url=dl'
-              payload = {
-                  'id': target_url,
-                  'locale': 'en',
-                  'tt': token
-              }
+              if data.get('code') != 0:
+                  raise ValueError(f"API Error: {data.get('msg', 'Failed to parse video')}")
 
-              api_headers = headers.copy()
-              api_headers.update({
-                  'hx-request': 'true',
-                  'hx-target': 'target',
-                  'hx-current-url': 'https://ssstik.io/en'
-              })
+              video_data = data.get('data', {})
+              
+              # Priority 1: hdplay (1920x1080 Ultra HD Stream)
+              # Priority 2: play (Standard Quality fallback if 1080p isn't uploaded)
+              hd_video_url = video_data.get('hdplay')
+              standard_video_url = video_data.get('play')
 
-              post_res = session.post(api_url, data=payload, headers=api_headers, timeout=15)
-              soup = BeautifulSoup(post_res.text, 'html.parser')
+              if hd_video_url:
+                  download_url = hd_video_url
+                  print('SUCCESS: Isolated 1920x1080 Ultra HD (hdplay) stream!')
+              elif standard_video_url:
+                  download_url = standard_video_url
+                  print('WARNING: 1080p HD stream not available for this video. Falling back to standard quality.')
+              else:
+                  raise ValueError('No valid download URL found in API response.')
 
-              hd_url = None
+              if not download_url.startswith('http'):
+                  download_url = 'https://www.tikwm.com' + download_url
 
-              # Strategy 1: Strictly check elements containing href and HD text
-              for a in soup.find_all('a', href=True):
-                  link_text = a.get_text().strip().lower()
-                  href = a.get('href', '')
-                  
-                  if href and ('without watermark hd' in link_text or ('hd' in link_text and 'watermark' in link_text)):
-                      hd_url = href
-                      print('Found "Without watermark HD" Button Link!')
-                      break
-
-              # Resolve relative redirect URLs
-              if hd_url and hd_url.startswith('/'):
-                  hd_url = 'https://ssstik.io' + hd_url
-
-              # Direct SSSTik HD API redirect resolver
-              if hd_url and 'ssstik.io' in hd_url:
-                  hd_page = session.get(hd_url, headers=headers, timeout=15)
-                  hd_soup = BeautifulSoup(hd_page.text, 'html.parser')
-                  
-                  for direct_a in hd_soup.find_all('a', href=True):
-                      classes = " ".join(direct_a.get('class', []))
-                      if re.search(r'download|pure-button|btn', classes):
-                          hd_url = direct_a.get('href')
-                          break
-
-              # Strategy 2: Defensive fallback searching class matching strictly with href=True
-              if not hd_url:
-                  hd_button = soup.find('a', href=True, class_=re.compile(r'hd')) or soup.find('a', href=re.compile(r'hd=1|/hd'))
-                  if hd_button:
-                      hd_url = hd_button.get('href')
-
-              # Strategy 3: General fallback for any non-watermarked link
-              if not hd_url:
-                  print('Warning: Couldn\'t isolate HD button safely, falling back to top available link.')
-                  all_links = soup.find_all('a', href=True)
-                  if all_links:
-                      hd_url = all_links[0].get('href')
-
-              if not hd_url:
-                  raise ValueError('Failed to isolate a valid HD Stream URL from response DOM.')
-
-              print(f'Downloading 1080p Ultra HD File from: {hd_url}')
-              video_data = session.get(hd_url, headers=headers, stream=True, timeout=30)
-              video_data.raise_for_status()
+              print(f'Downloading stream from: {download_url}')
+              video_res = requests.get(download_url, headers=headers, stream=True, timeout=30)
+              video_res.raise_for_status()
 
               with open('video.mp4', 'wb') as f:
-                  for chunk in video_data.iter_content(chunk_size=1024*1024):
+                  for chunk in video_res.iter_content(chunk_size=1024*1024):
                       if chunk:
                           f.write(chunk)
 
-              print('Success: 1920x1080 Ultra HD Video downloaded!')
+              print('Success: 1920x1080 Ultra HD Video downloaded successfully!')
 
           except Exception as e:
               print(f'Error occurred: {str(e)}')
